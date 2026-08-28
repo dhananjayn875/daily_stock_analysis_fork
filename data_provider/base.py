@@ -201,6 +201,12 @@ def _is_tw_market(code: str) -> bool:
     return is_suffix_market_symbol(code, "tw")
 
 
+def _is_india_market(code: str) -> bool:
+    """判定是否为印度 NSE/BSE Yahoo 后缀代码（.NS / .BO）。"""
+    normalized = (code or "").strip().upper()
+    return normalized.endswith((".NS", ".BO"))
+
+
 def _is_etf_code(code: str) -> bool:
     """判定 A 股 ETF 基金代码（保守规则）。"""
     normalized = normalize_stock_code(code)
@@ -1672,6 +1678,66 @@ class DataFetcherManager:
         from .us_index_mapping import is_us_index_code, is_us_stock_code
 
         raw_stock_code = (stock_code or "").strip()
+        if _is_india_market(raw_stock_code):
+            yfinance_fetcher = self._get_fetcher_by_name("YfinanceFetcher", capability="daily_data")
+            if yfinance_fetcher is None:
+                raise DataFetchError(f"印度市场 {raw_stock_code} 获取失败:\n暂无可用数据源: YfinanceFetcher")
+
+            attempt_start = time.time()
+            record_provider_run_started(
+                data_type="daily_data",
+                provider=yfinance_fetcher.name,
+                operation="get_daily_data",
+            )
+            try:
+                df = self._call_fetcher_method(
+                    yfinance_fetcher,
+                    "get_daily_data",
+                    stock_code=raw_stock_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                    days=days,
+                )
+            except Exception as exc:
+                error_type, error_reason = summarize_exception(exc)
+                record_provider_run(
+                    data_type="daily_data",
+                    provider=yfinance_fetcher.name,
+                    operation="get_daily_data",
+                    success=False,
+                    latency_ms=int((time.time() - attempt_start) * 1000),
+                    error_type=error_type,
+                    error_message=error_reason,
+                )
+                raise DataFetchError(
+                    f"印度市场 {raw_stock_code} 获取失败:\n[{yfinance_fetcher.name}] ({error_type}) {error_reason}"
+                ) from exc
+
+            if df is not None and not df.empty:
+                record_provider_run(
+                    data_type="daily_data",
+                    provider=yfinance_fetcher.name,
+                    operation="get_daily_data",
+                    success=True,
+                    latency_ms=int((time.time() - attempt_start) * 1000),
+                    record_count=len(df),
+                )
+                return df, yfinance_fetcher.name
+
+            record_provider_run(
+                data_type="daily_data",
+                provider=yfinance_fetcher.name,
+                operation="get_daily_data",
+                success=False,
+                latency_ms=int((time.time() - attempt_start) * 1000),
+                error_type="empty",
+                error_message="empty result",
+                record_count=0,
+            )
+            raise DataFetchError(
+                f"印度市场 {raw_stock_code} 获取失败:\n[{yfinance_fetcher.name}] (DataFetchError) empty result"
+            )
+
         target = parse_analysis_target(raw_stock_code)
         self._warn_bare_index_conflict(target)
         if target.asset_type == ParseStatus.UNSUPPORTED:
@@ -2155,6 +2221,13 @@ class DataFetcherManager:
             UnifiedRealtimeQuote 对象，所有数据源都失败则返回 None
         """
         raw_stock_code = (stock_code or "").strip()
+        if _is_india_market(raw_stock_code):
+            quote = self._try_fetcher_quote(raw_stock_code, "YfinanceFetcher")
+            if quote is not None:
+                return self._enrich_realtime_quote(quote)
+            if log_final_failure:
+                logger.info(f"[实时行情] 印度市场 {raw_stock_code} 无可用数据源")
+            return None
         # Normalize code (strip SH/SZ prefix etc.)
         stock_code = normalize_stock_code(stock_code)
 
