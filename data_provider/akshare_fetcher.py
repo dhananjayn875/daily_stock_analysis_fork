@@ -587,6 +587,10 @@ class AkshareFetcher(BaseFetcher):
         2. 失败后尝试新浪财经接口 (ak.stock_zh_a_daily)
         3. 最后尝试腾讯财经接口 (ak.stock_zh_a_hist_tx)
         """
+        normalized_code = normalize_stock_code(stock_code).upper()
+        if not (normalized_code.isdigit() or normalized_code.startswith(('SH', 'SZ', 'BJ'))):
+            raise DataFetchError(f"AkshareFetcher skipping unsupported ticker format: {stock_code}")
+
         # 尝试列表
         methods = [
             (self._fetch_stock_data_em, "东方财富"),

@@ -24,3 +24,10 @@ def test_normalize_daily_data_recovers_unnamed_datetime_index_date_column() -> N
 
     assert "date" in normalized.columns
     assert cleaned["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-05-25", "2026-05-26"]
+
+
+def test_convert_stock_code_keeps_indian_suffix_as_is() -> None:
+    fetcher = YfinanceFetcher()
+
+    assert fetcher._convert_stock_code("reliance.NS") == "reliance.NS"
+    assert fetcher._convert_stock_code("TCS.BO") == "TCS.BO"

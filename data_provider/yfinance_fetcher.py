@@ -118,7 +118,11 @@ class YfinanceFetcher(BaseFetcher):
             >>> fetcher._convert_stock_code('AAPL')
             'AAPL'
         """
-        code = stock_code.strip().upper()
+        raw_code = stock_code
+        if raw_code.upper().endswith((".NS", ".BO")):
+            return raw_code
+
+        code = raw_code.strip().upper()
 
         # 美股指数：映射到 Yahoo Finance 符号（如 SPX -> ^GSPC）
         yf_symbol, _ = get_us_index_yf_symbol(code)
