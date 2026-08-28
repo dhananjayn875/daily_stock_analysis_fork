@@ -526,12 +526,26 @@ jobs:
           fi
 
           # 执行分析
+          set +e
           if [ "$MODE" = "market-only" ]; then
             python main.py --market-review $FORCE_RUN_ARG
           elif [ "$MODE" = "stocks-only" ]; then
             python main.py --no-market-review $FORCE_RUN_ARG
           else
             python main.py $FORCE_RUN_ARG
+          fi
+          ANALYSIS_EXIT_CODE=$?
+          set -e
+
+          if [ "$ANALYSIS_EXIT_CODE" -ne 0 ]; then
+            LATEST_LOG_FILE="$(ls -t logs/stock_analysis_*.log 2>/dev/null | head -1 || true)"
+            if [ -n "$LATEST_LOG_FILE" ] \
+              && grep -q "本轮分析未生成任何报告" "$LATEST_LOG_FILE" \
+              && grep -Eq "All LLM models failed|insufficient balance" "$LATEST_LOG_FILE"; then
+              echo "::warning::分析未产出报告且日志显示 LLM 额度不足，任务标记为警告并继续。"
+            else
+              exit "$ANALYSIS_EXIT_CODE"
+            fi
           fi
       
       - name: 上传分析报告
