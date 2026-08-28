@@ -142,6 +142,8 @@ def normalize_stock_code(stock_code: str) -> str:
             return f"{base}.{suffix.upper()}"
         if suffix.upper() == 'HK' and base.isdigit() and 1 <= len(base) <= 5:
             return f"HK{base.zfill(5)}"
+        if suffix.upper() in ('NS', 'BO'):
+            return f"{base.upper()}.{suffix.upper()}"
         if base.upper() in ('SH', 'SS', 'SZ', 'BJ') and suffix.isdigit():
             return suffix
         if suffix.upper() in ('SH', 'SZ', 'SS', 'BJ') and base.isdigit():
@@ -201,12 +203,6 @@ def _is_tw_market(code: str) -> bool:
     return is_suffix_market_symbol(code, "tw")
 
 
-def _is_india_market(code: str) -> bool:
-    """判定是否为印度 NSE/BSE Yahoo 后缀代码（.NS / .BO）。"""
-    normalized = (code or "").strip().upper()
-    return normalized.endswith((".NS", ".BO"))
-
-
 def _is_etf_code(code: str) -> bool:
     """判定 A 股 ETF 基金代码（保守规则）。"""
     normalized = normalize_stock_code(code)
@@ -246,8 +242,16 @@ def _is_meaningful_chip_distribution(chip: Any) -> bool:
     )
 
 
+def _is_in_market(code: str) -> bool:
+    """判定是否为印度 NSE/BSE 代码（如 RELIANCE.NS / 500325.BO，包含 .NS 或 .BO 后缀）。"""
+    upper = (code or "").strip().upper()
+    return upper.endswith((".NS", ".BO")) or ".NS" in upper or ".BO" in upper
+
+
 def _market_tag(code: str) -> str:
-    """返回市场标签: cn/us/hk/jp/kr/tw."""
+    """返回市场标签: cn/us/hk/jp/kr/tw/in."""
+    if _is_in_market(code):
+        return "in"
     if _is_us_market(code):
         return "us"
     if _is_hk_market(code):
@@ -630,7 +634,7 @@ class DataFetcherManager:
         "TickFlowFetcher": {"cn"},
         "PytdxFetcher": {"cn"},
         "BaostockFetcher": {"cn"},
-        "YfinanceFetcher": {"cn", "hk", "us", "jp", "kr", "tw"},
+        "YfinanceFetcher": {"cn", "hk", "us", "jp", "kr", "tw", "in"},
         "LongbridgeFetcher": {"hk", "us"},
         "FutuFetcher": {"hk"},
         "FinnhubFetcher": {"us"},
@@ -1678,66 +1682,6 @@ class DataFetcherManager:
         from .us_index_mapping import is_us_index_code, is_us_stock_code
 
         raw_stock_code = (stock_code or "").strip()
-        if _is_india_market(raw_stock_code):
-            yfinance_fetcher = self._get_fetcher_by_name("YfinanceFetcher", capability="daily_data")
-            if yfinance_fetcher is None:
-                raise DataFetchError(f"印度市场 {raw_stock_code} 获取失败:\n暂无可用数据源: YfinanceFetcher")
-
-            attempt_start = time.time()
-            record_provider_run_started(
-                data_type="daily_data",
-                provider=yfinance_fetcher.name,
-                operation="get_daily_data",
-            )
-            try:
-                df = self._call_fetcher_method(
-                    yfinance_fetcher,
-                    "get_daily_data",
-                    stock_code=raw_stock_code,
-                    start_date=start_date,
-                    end_date=end_date,
-                    days=days,
-                )
-            except Exception as exc:
-                error_type, error_reason = summarize_exception(exc)
-                record_provider_run(
-                    data_type="daily_data",
-                    provider=yfinance_fetcher.name,
-                    operation="get_daily_data",
-                    success=False,
-                    latency_ms=int((time.time() - attempt_start) * 1000),
-                    error_type=error_type,
-                    error_message=error_reason,
-                )
-                raise DataFetchError(
-                    f"印度市场 {raw_stock_code} 获取失败:\n[{yfinance_fetcher.name}] ({error_type}) {error_reason}"
-                ) from exc
-
-            if df is not None and not df.empty:
-                record_provider_run(
-                    data_type="daily_data",
-                    provider=yfinance_fetcher.name,
-                    operation="get_daily_data",
-                    success=True,
-                    latency_ms=int((time.time() - attempt_start) * 1000),
-                    record_count=len(df),
-                )
-                return df, yfinance_fetcher.name
-
-            record_provider_run(
-                data_type="daily_data",
-                provider=yfinance_fetcher.name,
-                operation="get_daily_data",
-                success=False,
-                latency_ms=int((time.time() - attempt_start) * 1000),
-                error_type="empty",
-                error_message="empty result",
-                record_count=0,
-            )
-            raise DataFetchError(
-                f"印度市场 {raw_stock_code} 获取失败:\n[{yfinance_fetcher.name}] (DataFetchError) empty result"
-            )
-
         target = parse_analysis_target(raw_stock_code)
         self._warn_bare_index_conflict(target)
         if target.asset_type == ParseStatus.UNSUPPORTED:
@@ -1757,6 +1701,97 @@ class DataFetcherManager:
         fetchers = self._get_fetchers_snapshot()
         errors = []
         request_start = time.time()
+
+        # If 'stock_code' contains '.NS' or '.BO', completely bypass Akshare, Baostock, and Tencent providers.
+        # Short-circuit the execution to route the ticker query directly and exclusively to 'YfinanceFetcher'.
+        is_in = _is_in_market(stock_code) or _is_in_market(raw_stock_code)
+        if is_in:
+            market = "in"
+            market_label = "印度股"
+            yf_fetcher = self._get_fetcher_by_name("YfinanceFetcher", capability="daily_data")
+            if yf_fetcher is None:
+                error_summary = f"{market_label} {stock_code} 获取失败:\n未找到可用的 YfinanceFetcher 数据源"
+                logger.error(f"[数据源终止] {stock_code} 获取失败: {error_summary}")
+                raise DataFetchError(error_summary)
+
+            if not self._is_daily_source_available(yf_fetcher, market):
+                error_msg = self._daily_source_unavailable_error(yf_fetcher)
+                error_summary = f"{market_label} {stock_code} 获取失败:\n{error_msg}"
+                logger.error(f"[数据源终止] {stock_code} 获取失败: {error_summary}")
+                raise DataFetchError(error_summary)
+
+            attempt_start = time.time()
+            try:
+                logger.info(
+                    f"[数据源尝试 1/1] [{yf_fetcher.name}] {market_label} {stock_code} 专有直连路由..."
+                )
+                record_provider_run_started(
+                    data_type="daily_data",
+                    provider=yf_fetcher.name,
+                    operation="get_daily_data",
+                )
+                df = self._call_fetcher_method(
+                    yf_fetcher,
+                    "get_daily_data",
+                    stock_code=stock_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                    days=days,
+                )
+                if df is not None and not df.empty:
+                    duration_ms = int((time.time() - attempt_start) * 1000)
+                    record_provider_run(
+                        data_type="daily_data",
+                        provider=yf_fetcher.name,
+                        operation="get_daily_data",
+                        success=True,
+                        latency_ms=duration_ms,
+                        record_count=len(df),
+                    )
+                    elapsed = time.time() - request_start
+                    logger.info(
+                        f"[数据源完成] {stock_code} 使用 [{yf_fetcher.name}] 获取成功: "
+                        f"rows={len(df)}, elapsed={elapsed:.2f}s"
+                    )
+                    self._record_daily_source_success(yf_fetcher, market)
+                    return df, yf_fetcher.name
+
+                duration_ms = int((time.time() - attempt_start) * 1000)
+                record_provider_run(
+                    data_type="daily_data",
+                    provider=yf_fetcher.name,
+                    operation="get_daily_data",
+                    success=False,
+                    latency_ms=duration_ms,
+                    error_type="empty",
+                    error_message="empty result",
+                    record_count=0,
+                )
+                if df is not None and df.empty:
+                    self._record_daily_source_success(yf_fetcher, market)
+                raise DataFetchError(f"[{yf_fetcher.name}] 未查询到 {stock_code} 的数据")
+            except Exception as e:
+                error_type, error_reason = summarize_exception(e)
+                error_msg = f"[{yf_fetcher.name}] ({error_type}) {error_reason}"
+                duration_ms = int((time.time() - attempt_start) * 1000)
+                record_provider_run(
+                    data_type="daily_data",
+                    provider=yf_fetcher.name,
+                    operation="get_daily_data",
+                    success=False,
+                    latency_ms=duration_ms,
+                    error_type=error_type,
+                    error_message=error_reason,
+                )
+                logger.warning(
+                    f"[数据源失败 1/1] [{yf_fetcher.name}] {stock_code}: "
+                    f"error_type={error_type}, reason={error_reason}"
+                )
+                self._record_daily_source_failure(yf_fetcher, market, error_reason)
+                error_summary = f"{market_label} {stock_code} 获取失败:\n{error_msg}"
+                elapsed = time.time() - request_start
+                logger.error(f"[数据源终止] {stock_code} 获取失败: elapsed={elapsed:.2f}s\n{error_summary}")
+                raise DataFetchError(error_summary)
 
         # 快速路径：美股使用专用数据源路由；港股先过滤不支持港股日线的数据源
         #   - 配置长桥凭据后: Longbridge 为首选, YFinance/AkShare 兜底
@@ -2221,13 +2256,6 @@ class DataFetcherManager:
             UnifiedRealtimeQuote 对象，所有数据源都失败则返回 None
         """
         raw_stock_code = (stock_code or "").strip()
-        if _is_india_market(raw_stock_code):
-            quote = self._try_fetcher_quote(raw_stock_code, "YfinanceFetcher")
-            if quote is not None:
-                return self._enrich_realtime_quote(quote)
-            if log_final_failure:
-                logger.info(f"[实时行情] 印度市场 {raw_stock_code} 无可用数据源")
-            return None
         # Normalize code (strip SH/SZ prefix etc.)
         stock_code = normalize_stock_code(stock_code)
 
@@ -2254,6 +2282,20 @@ class DataFetcherManager:
         is_jp = (not is_us) and (not is_hk) and _is_jp_market(stock_code)
         is_kr = (not is_us) and (not is_hk) and _is_kr_market(stock_code)
         is_tw = (not is_us) and (not is_hk) and _is_tw_market(stock_code)
+
+        is_in = _is_in_market(stock_code) or _is_in_market(raw_stock_code)
+        if is_in:
+            market_label = "印度股"
+            quote = self._try_fetcher_quote(stock_code, "YfinanceFetcher")
+            if quote is not None:
+                logger.info(f"[实时行情] {market_label} {stock_code} 成功获取 (来源: YfinanceFetcher)")
+                return self._enrich_realtime_quote(
+                    quote,
+                    realtime_cache_ttl=getattr(config, "realtime_cache_ttl", None),
+                )
+            if log_final_failure:
+                logger.info(f"[实时行情] {market_label} {stock_code} 无可用数据源")
+            return None
 
         if is_jp or is_kr or is_tw:
             market_label = "日股" if is_jp else "韩股" if is_kr else "台股"
@@ -3998,7 +4040,7 @@ class DataFetcherManager:
         stock_code = normalize_stock_code(stock_code)
         market = _market_tag(stock_code)
         is_etf = _is_etf_code(stock_code)
-        if market in {"us", "hk", "jp", "kr", "tw"}:
+        if market in {"us", "hk", "jp", "kr", "tw", "in"}:
             return self._build_offshore_fundamental_context(
                 stock_code,
                 market=market,

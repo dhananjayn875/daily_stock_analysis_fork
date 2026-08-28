@@ -118,11 +118,12 @@ class YfinanceFetcher(BaseFetcher):
             >>> fetcher._convert_stock_code('AAPL')
             'AAPL'
         """
-        raw_code = stock_code
-        if raw_code.upper().endswith((".NS", ".BO")):
-            return raw_code
+        code = stock_code.strip().upper()
 
-        code = raw_code.strip().upper()
+        # 印度市场：.NS / .BO 格式直接原样返回
+        if code.endswith(('.NS', '.BO')) or '.NS' in code or '.BO' in code:
+            logger.debug(f"识别为印度市场代码: {code}")
+            return code
 
         # 美股指数：映射到 Yahoo Finance 符号（如 SPX -> ^GSPC）
         yf_symbol, _ = get_us_index_yf_symbol(code)
@@ -819,13 +820,15 @@ class YfinanceFetcher(BaseFetcher):
                 index_name=index_name,
             )
 
-        # 仅处理美股股票或 JP/KR/TW suffix-only 股票
+        # 仅处理美股股票、JP/KR/TW suffix-only 股票或印度 (.NS/.BO) 股票
+        is_in = stock_code.strip().upper().endswith(('.NS', '.BO')) or '.NS' in stock_code.upper() or '.BO' in stock_code.upper()
         if not (
             self._is_us_stock(stock_code)
             or self._is_jp_kr_suffix_stock(stock_code)
             or self._is_tw_suffix_stock(stock_code)
+            or is_in
         ):
-            logger.debug(f"[Yfinance] {stock_code} 不是美股或日韩 suffix 代码，跳过")
+            logger.debug(f"[Yfinance] {stock_code} 不是美股、日韩台或印度 suffix 代码，跳过")
             return None
 
         try:
@@ -915,7 +918,7 @@ class YfinanceFetcher(BaseFetcher):
                 code=symbol,
                 name=name,
                 source=RealtimeSource.FALLBACK,
-                market=suffix_market or ("us" if is_us_symbol else None),
+                market="in" if is_in else (suffix_market or ("us" if is_us_symbol else None)),
                 currency=str(ticker_info.get("currency") or "").upper() or None,
                 data_quality="partial" if missing_fields else "ok",
                 missing_fields=missing_fields or None,

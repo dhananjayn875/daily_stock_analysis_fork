@@ -200,6 +200,7 @@ class BaostockFetcher(BaseFetcher):
         4. 调用 API 查询数据
         5. 将结果转换为 DataFrame
         """
+        # 印度市场不支持，抛出异常让 DataFetcherManager 切换到其他数据源
         if stock_code.upper().endswith(('.NS', '.BO')):
             raise DataFetchError(f"BaostockFetcher does not support Indian NSE/BSE tickers: {stock_code}")
 
