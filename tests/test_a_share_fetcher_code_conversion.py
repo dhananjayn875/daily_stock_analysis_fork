@@ -8,9 +8,11 @@ import unittest
 import pandas as pd
 
 from data_provider.base import DataFetcherManager, normalize_stock_code
+from data_provider.akshare_fetcher import AkshareFetcher
 from data_provider.baostock_fetcher import BaostockFetcher
 from data_provider.pytdx_fetcher import PytdxFetcher
 from data_provider.tushare_fetcher import TushareFetcher
+from data_provider.base import DataFetchError
 
 
 class _RecordingDailyFetcher:
@@ -25,6 +27,25 @@ class _RecordingDailyFetcher:
         return pd.DataFrame({"date": ["2026-05-22"], "close": [10.0]})
 
 
+class _NamedRecordingDailyFetcher:
+    def __init__(self, name: str, should_fail: bool = False) -> None:
+        self.name = name
+        self.priority = {
+            "AkshareFetcher": 1,
+            "BaostockFetcher": 3,
+            "TencentFetcher": 5,
+            "YfinanceFetcher": 4,
+        }.get(name, 6)
+        self.should_fail = should_fail
+        self.calls = []
+
+    def get_daily_data(self, stock_code: str, *args, **kwargs) -> pd.DataFrame:
+        self.calls.append(stock_code)
+        if self.should_fail:
+            raise DataFetchError(f"{self.name} should not be called for {stock_code}")
+        return pd.DataFrame({"date": ["2026-05-22"], "close": [10.0]})
+
+
 class TestDataFetcherManagerAShareCodes(unittest.TestCase):
     def test_get_daily_data_keeps_user_contract_as_bare_stock_code(self) -> None:
         fetcher = _RecordingDailyFetcher()
@@ -35,6 +56,22 @@ class TestDataFetcherManagerAShareCodes(unittest.TestCase):
         self.assertFalse(df.empty)
         self.assertEqual(source, "RecordingDailyFetcher")
         self.assertEqual(fetcher.calls, ["601888"])
+
+    def test_get_daily_data_routes_indian_suffix_to_yfinance_only(self) -> None:
+        akshare = _NamedRecordingDailyFetcher("AkshareFetcher", should_fail=True)
+        baostock = _NamedRecordingDailyFetcher("BaostockFetcher", should_fail=True)
+        tencent = _NamedRecordingDailyFetcher("TencentFetcher", should_fail=True)
+        yfinance = _NamedRecordingDailyFetcher("YfinanceFetcher")
+        manager = DataFetcherManager(fetchers=[akshare, baostock, tencent, yfinance])
+
+        df, source = manager.get_daily_data("RELIANCE.NS", days=1)
+
+        self.assertFalse(df.empty)
+        self.assertEqual(source, "YfinanceFetcher")
+        self.assertEqual(yfinance.calls, ["RELIANCE.NS"])
+        self.assertEqual(akshare.calls, [])
+        self.assertEqual(baostock.calls, [])
+        self.assertEqual(tencent.calls, [])
 
 
 class TestBaostockAShareCodeConversion(unittest.TestCase):
@@ -71,6 +108,24 @@ class TestBaostockAShareCodeConversion(unittest.TestCase):
         self.assertEqual(fetcher._convert_stock_code("SZ600519"), "sz.600519")
         self.assertEqual(fetcher._convert_stock_code("SZ.600519"), "sz.600519")
         self.assertEqual(fetcher._convert_stock_code("ss.600519"), "sh.600519")
+
+    def test_baostock_rejects_indian_suffix_tickers(self) -> None:
+        fetcher = BaostockFetcher()
+        with self.assertRaisesRegex(
+            DataFetchError,
+            "BaostockFetcher does not support Indian NSE/BSE tickers: RELIANCE.NS",
+        ):
+            fetcher._fetch_raw_data("RELIANCE.NS", "2026-01-01", "2026-01-31")
+
+
+class TestAkshareDomesticTickerGuard(unittest.TestCase):
+    def test_akshare_rejects_unsupported_international_shape(self) -> None:
+        fetcher = AkshareFetcher()
+        with self.assertRaisesRegex(
+            DataFetchError,
+            "AkshareFetcher skipping unsupported ticker format: RELIANCE.NS",
+        ):
+            fetcher._fetch_stock_data("RELIANCE.NS", "2026-01-01", "2026-01-31")
 
 
 class TestPytdxAShareCodeConversion(unittest.TestCase):
