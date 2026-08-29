@@ -1238,6 +1238,25 @@ class NotificationService(
             signal_tag,
         )
 
+    @staticmethod
+    def _get_tradingview_url(stock_code: str) -> str:
+        """Generate a direct TradingView interactive chart link."""
+        code = (stock_code or "").strip().upper()
+        if code.endswith(".NS"):
+            symbol = f"NSE:{code[:-3]}"
+        elif code.endswith(".BO"):
+            symbol = f"BSE:{code[:-3]}"
+        elif code.endswith(".HK") or code.startswith("HK"):
+            bare = code.replace(".HK", "").replace("HK", "").lstrip("0") or "0"
+            symbol = f"HKEX:{bare}"
+        elif code.startswith("SH") or code.startswith("60") or code.startswith("68"):
+            symbol = f"SSE:{code.replace('SH', '')}"
+        elif code.startswith("SZ") or code.startswith("00") or code.startswith("30"):
+            symbol = f"SZSE:{code.replace('SZ', '')}"
+        else:
+            symbol = code
+        return f"https://www.tradingview.com/chart/?symbol={symbol}"
+
     def generate_dashboard_report(
         self,
         results: List[AnalysisResult],
@@ -1337,8 +1356,11 @@ class NotificationService(
                 # 股票名称（优先使用 dashboard 或 result 中的名称，转义 *ST 等特殊字符）
                 stock_name = self._get_display_name(result, report_language)
 
+                tv_url = self._get_tradingview_url(result.code)
+                chart_text = f"📈 [Open Interactive Chart on TradingView]({tv_url})" if report_language == "en" else f"📈 [查看 TradingView 实时图表]({tv_url})"
                 report_lines.extend([
                     f"## {signal_emoji} {stock_name} ({result.code})",
+                    f"{chart_text}",
                     "",
                 ])
                 # ========== 舆情与基本面概览（放在最前面）==========
@@ -1958,10 +1980,12 @@ class NotificationService(
         intel = dashboard.get('intelligence', {}) if dashboard else {}
 
         # 股票名称（转义 *ST 等特殊字符）
-        stock_name = self._get_display_name(result, report_language)
+        tv_url = self._get_tradingview_url(result.code)
+        chart_text = f"📈 [Open Interactive Chart on TradingView]({tv_url})" if report_language == "en" else f"📈 [查看 TradingView 实时图表]({tv_url})"
 
         lines = [
             f"## {signal_emoji} {stock_name} ({result.code})",
+            f"{chart_text}",
             "",
             f"> {report_date} | {labels['score_label']}: **{result.sentiment_score}** | {localize_trend_prediction(result.trend_prediction, report_language)}",
             "",
