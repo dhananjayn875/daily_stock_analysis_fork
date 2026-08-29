@@ -100,6 +100,9 @@ def _normalize_code(raw: str) -> Optional[str]:
     # US stocks: 1-5 letters, optionally with . (e.g. BRK.B)
     if re.match(r"^[A-Z]{1,5}(\.[A-Z])?$", s):
         return s
+    # Indian stocks (.NS / .BO)
+    if re.match(r"^[A-Z0-9_]{1,15}\.(?:NS|BO)$", s):
+        return s
     # 尝试去除 SH/SZ 后缀
     for suffix in (".SH", ".SZ", ".SS"):
         if s.endswith(suffix):

@@ -170,6 +170,17 @@ class DiscordPlatform(BotPlatform):
         else:
             chat_type = ChatType.UNKNOWN
 
+        # Extract image attachment URLs
+        image_urls = []
+        resolved_attachments = interaction_data.get("resolved", {}).get("attachments", {})
+        if isinstance(resolved_attachments, dict):
+            for att in resolved_attachments.values():
+                if isinstance(att, dict) and att.get("url"):
+                    image_urls.append(att.get("url"))
+        for att in data.get("attachments", []) or []:
+            if isinstance(att, dict) and att.get("url"):
+                image_urls.append(att.get("url"))
+
         return BotMessage(
             platform=self.platform_name,
             message_id=str(data.get("id") or ""),
@@ -181,6 +192,7 @@ class DiscordPlatform(BotPlatform):
             raw_content=content,
             mentioned=False,
             mentions=[],
+            image_urls=image_urls,
             timestamp=self._parse_timestamp(data.get("timestamp")),
             raw_data={
                 **data,

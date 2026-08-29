@@ -60,6 +60,7 @@ class BotMessage:
     raw_content: str = ""
     mentioned: bool = False
     mentions: List[str] = field(default_factory=list)
+    image_urls: List[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
     raw_data: Dict[str, Any] = field(default_factory=dict)
     

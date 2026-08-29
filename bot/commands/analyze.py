@@ -43,25 +43,27 @@ class AnalyzeCommand(BotCommand):
     
     @property
     def usage(self) -> str:
-        return "/analyze <股票代码> [full]"
+        return "/analyze <股票代码|Ticker> [mode: fa|ta|full|simple]"
     
     def validate_args(self, args: List[str]) -> Optional[str]:
         """验证参数"""
         if not args:
-            return "请输入股票代码"
+            return "Please provide a stock code / ticker (e.g. RELIANCE.NS, AAPL, 600519)"
         
         code = args[0].upper()
 
         # 验证股票代码格式
         # A股：6位数字
         # 港股：HK+5位数字
-        # 美股：1-5个大写字母+.+2个后缀字母
-        is_a_stock = re.match(r'^\d{6}$', code)
-        is_hk_stock = re.match(r'^HK\d{5}$', code)
-        is_us_stock = re.match(r'^[A-Z]{1,5}(\.[A-Z]{1,2})?$', code)
+        # 美股：1-5个大写字母
+        # 印度股：TICKER.NS 或 TICKER.BO
+        is_a_stock = bool(re.match(r'^\d{6}$', code))
+        is_hk_stock = bool(re.match(r'^HK\d{5}$', code))
+        is_us_stock = bool(re.match(r'^[A-Z]{1,5}(\.[A-Z]{1,2})?$', code))
+        is_in_stock = bool(re.match(r'^[A-Z0-9_]{1,15}\.(?:NS|BO)$', code))
 
-        if not (is_a_stock or is_hk_stock or is_us_stock):
-            return f"无效的股票代码: {code}（A股6位数字 / 港股HK+5位数字 / 美股1-5个字母）"
+        if not (is_a_stock or is_hk_stock or is_us_stock or is_in_stock):
+            return f"Invalid stock ticker: {code} (Format: RELIANCE.NS / 500325.BO / AAPL / 600519 / HK00700)"
         
         return None
     
@@ -69,14 +71,38 @@ class AnalyzeCommand(BotCommand):
         """执行分析命令"""
         code = resolve_index_stock_code_for_analysis(args[0])
         
-        # 检查是否需要完整报告（默认精简，传 full/完整/详细 切换）
-        report_type = "simple"
-        if len(args) > 1 and args[1].lower() in ["full", "完整", "详细"]:
-            report_type = "full"
+        # 模式解析 (fa, ta, full, simple)
+        mode = "simple"
+        if len(args) > 1:
+            raw_mode = args[1].lower()
+            if raw_mode in ["ta", "tech", "priceaction", "pa"]:
+                mode = "ta"
+            elif raw_mode in ["fa", "fund", "full", "完整", "详细"]:
+                mode = "full"
+            elif raw_mode in ["simple", "精简"]:
+                mode = "simple"
+
+        # 如果附带了图片或者显式指定 ta 模式
+        image_urls = getattr(message, "image_urls", []) or []
+        if image_urls or mode == "ta":
+            try:
+                from src.services.chart_vision_analyzer import ChartVisionAnalyzer
+                logger.info(f"[AnalyzeCommand] Running Chart Vision & SMC Analysis for {code} with {len(image_urls)} images")
+                analysis_text = ChartVisionAnalyzer.analyze_stock_with_charts(
+                    code=code,
+                    image_sources=image_urls,
+                    mode=mode,
+                    report_language="en",
+                )
+                return BotResponse.markdown_response(analysis_text)
+            except Exception as e:
+                logger.warning(f"[AnalyzeCommand] Chart Vision analysis failed, falling back to standard pipeline: {e}")
+
+        # 默认标准分析管道
+        report_type = "full" if mode == "full" else "simple"
         logger.info(f"[AnalyzeCommand] 分析股票: {code}, 报告类型: {report_type}")
         
         try:
-            # 调用分析服务
             from src.services.task_service import get_task_service
             from src.enums import ReportType
             
@@ -92,16 +118,16 @@ class AnalyzeCommand(BotCommand):
             if result.get("success"):
                 task_id = result.get("task_id", "")
                 return BotResponse.markdown_response(
-                    f"✅ **分析任务已提交**\n\n"
-                    f"• 股票代码: `{code}`\n"
-                    f"• 报告类型: {ReportType.from_str(report_type).display_name}\n"
-                    f"• 任务 ID: `{task_id[:20]}...`\n\n"
-                    f"分析完成后将自动推送结果。"
+                    f"✅ **Analysis Task Submitted**\n\n"
+                    f"• Ticker: `{code}`\n"
+                    f"• Mode: {mode.upper()}\n"
+                    f"• Task ID: `{task_id[:20]}...`\n\n"
+                    f"Report will be delivered to Discord upon completion."
                 )
             else:
-                error = result.get("error", "未知错误")
-                return BotResponse.error_response(f"提交分析任务失败: {error}")
+                error = result.get("error", "Unknown error")
+                return BotResponse.error_response(f"Failed to submit analysis task: {error}")
                 
         except Exception as e:
-            logger.error(f"[AnalyzeCommand] 执行失败: {e}")
-            return BotResponse.error_response(f"分析失败: {str(e)[:100]}")
+            logger.error(f"[AnalyzeCommand] Execution failed: {e}")
+            return BotResponse.error_response(f"Analysis failed: {str(e)[:100]}")
