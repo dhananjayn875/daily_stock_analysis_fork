@@ -1512,7 +1512,7 @@ class NotificationService(
                             "",
                         ])
                         for item in checklist:
-                            report_lines.append(f"- {item}")
+                            report_lines.append(f"- {self._localize_checklist_item(item, report_language)}")
                         report_lines.append("")
 
                 # ========== 信号归因分析 ==========
@@ -1782,7 +1782,7 @@ class NotificationService(
                     if failed_checks:
                         lines.append(f"**{labels['failed_checks_heading']}**:")
                         for check in failed_checks[:3]:
-                            lines.append(f"   {check[:40]}")
+                            lines.append(f"   {self._localize_checklist_item(check, report_language)[:50]}")
                         lines.append("")
 
                 lines.append("---")
@@ -2160,12 +2160,30 @@ class NotificationService(
         "TWD": "新台币",  # 台股 (TWSE/TPEx) 以新台币计价，避免与 A 股「元」(人民币) 混淆
     }
 
-    @classmethod
-    def _format_amount_cn(cls, value: Any, currency: Optional[str] = None) -> str:
-        """Format absolute amounts in 亿/万 + currency suffix; returns N/A on non-numeric.
+    @staticmethod
+    def _localize_checklist_item(item: str, report_language: str = "zh") -> str:
+        """Localize checklist items when output language is English."""
+        if not item or report_language != "en":
+            return str(item)
+        s = str(item)
+        s = s.replace("检查项1：多头排列", "Check 1: Bullish Alignment")
+        s = s.replace("检查项1：当前结构是否满足激活技能条件", "Check 1: Skill Condition")
+        s = s.replace("检查项2：乖离率合理（强势趋势可放宽）", "Check 2: Reasonable Bias")
+        s = s.replace("检查项2：乖离率合理", "Check 2: Reasonable Bias")
+        s = s.replace("检查项2：入场位置与风险回报是否合理", "Check 2: Risk-Reward Ratio")
+        s = s.replace("检查项3：量能配合", "Check 3: Volume Support")
+        s = s.replace("检查项3：量价/波动/筹码是否支持判断", "Check 3: Volume & Price Support")
+        s = s.replace("检查项4：无重大利空", "Check 4: No Major Negative News")
+        s = s.replace("检查项5：筹码健康", "Check 5: Chip Structure (N/A for Global Markets)")
+        s = s.replace("检查项5：仓位与止损计划明确", "Check 5: Position & Stop-loss Plan")
+        s = s.replace("检查项6：PE估值合理", "Check 6: PE / Valuation Reasonable")
+        s = s.replace("检查项6：估值/业绩/催化与结论匹配", "Check 6: Valuation & Catalysts Match")
+        s = re.sub(r"检查项(\d+)：", r"Check \1: ", s)
+        return s
 
-        ``currency`` accepts ``USD``/``HKD``/``CNY``; unknown values fall back to 元.
-        """
+    @classmethod
+    def _format_financial_amount(cls, value: Any, currency: Optional[str] = None, report_language: str = "zh") -> str:
+        """Format absolute financial amounts respecting language and currency."""
         try:
             amount = float(value)
         except (TypeError, ValueError):
@@ -2174,12 +2192,32 @@ class NotificationService(
             return "N/A"
         sign = "-" if amount < 0 else ""
         abs_amount = abs(amount)
-        suffix = cls._CURRENCY_SUFFIX.get((currency or "").upper(), "元")
+        curr = (currency or "").upper()
+        if report_language == "en":
+            curr_str = f" {curr}" if curr else ""
+            if abs_amount >= 1e12:
+                return f"{sign}{abs_amount / 1e12:.2f}T{curr_str}"
+            if abs_amount >= 1e9:
+                return f"{sign}{abs_amount / 1e9:.2f}B{curr_str}"
+            if abs_amount >= 1e6:
+                return f"{sign}{abs_amount / 1e6:.2f}M{curr_str}"
+            if abs_amount >= 1e3:
+                return f"{sign}{abs_amount / 1e3:.2f}K{curr_str}"
+            return f"{sign}{abs_amount:.2f}{curr_str}"
+        suffix = cls._CURRENCY_SUFFIX.get(curr, "元")
         if abs_amount >= 1e8:
             return f"{sign}{abs_amount / 1e8:.2f} 亿{suffix}"
         if abs_amount >= 1e4:
             return f"{sign}{abs_amount / 1e4:.2f} 万{suffix}"
         return f"{sign}{abs_amount:.0f} {suffix}"
+
+    @classmethod
+    def _format_amount_cn(cls, value: Any, currency: Optional[str] = None) -> str:
+        """Format absolute amounts in 亿/万 + currency suffix; returns N/A on non-numeric.
+
+        ``currency`` accepts ``USD``/``HKD``/``CNY``; unknown values fall back to 元.
+        """
+        return cls._format_financial_amount(value, currency=currency, report_language="zh")
 
     @staticmethod
     def _format_percent(value: Any) -> str:
@@ -2281,7 +2319,7 @@ class NotificationService(
         report_language = self._get_report_language(result)
         labels = get_report_labels(report_language)
 
-        self._append_financial_summary(lines, blocks, labels)
+        self._append_financial_summary(lines, blocks, labels, report_language=report_language)
         self._append_shareholder_return(lines, blocks, labels)
         self._append_institutional_flow(lines, blocks, labels)
         self._append_related_boards(lines, blocks, labels)
@@ -2291,15 +2329,16 @@ class NotificationService(
         lines: List[str],
         blocks: Dict[str, Any],
         labels: Dict[str, str],
+        report_language: str = "zh",
     ) -> None:
         report = blocks.get("financial_report") or {}
         growth = blocks.get("growth") or {}
         currency = report.get("currency") if isinstance(report.get("currency"), str) else None
         cells = {
             "report_date": self._format_text(report.get("report_date")),
-            "revenue": self._format_amount_cn(report.get("revenue"), currency),
-            "net_profit": self._format_amount_cn(report.get("net_profit_parent"), currency),
-            "operating_cash_flow": self._format_amount_cn(report.get("operating_cash_flow"), currency),
+            "revenue": self._format_financial_amount(report.get("revenue"), currency, report_language),
+            "net_profit": self._format_financial_amount(report.get("net_profit_parent"), currency, report_language),
+            "operating_cash_flow": self._format_financial_amount(report.get("operating_cash_flow"), currency, report_language),
             "roe": self._format_percent(report.get("roe") if report.get("roe") is not None else growth.get("roe")),
             "revenue_yoy": self._format_percent(growth.get("revenue_yoy")),
             "net_profit_yoy": self._format_percent(growth.get("net_profit_yoy")),

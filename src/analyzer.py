@@ -2398,6 +2398,8 @@ class GeminiAnalyzer:
 - Keep all JSON keys unchanged.
 - `decision_type` must remain `buy|hold|sell`.
 - All human-readable JSON values must be written in English.
+- Use English for all `action_checklist` items without Chinese text (e.g. "Check 1: Bullish MA Alignment", "Check 2: Reasonable Bias", "Check 3: Volume Support", "Check 4: No Major Negative News", "Check 5: Chip Structure (N/A for Global Markets)", "Check 6: PE / Valuation Reasonable").
+- For international/global stocks, note that chip distribution is N/A.
 - Use the common English company name when you are confident; otherwise keep the original listed company name instead of inventing one.
 - This includes `stock_name`, `trend_prediction`, `operation_advice`, `confidence_level`, nested dashboard text, checklist items, and all narrative summaries.
 """
@@ -3936,7 +3938,7 @@ class GeminiAnalyzer:
                 result = self._parse_response(response_text, code, name)
                 result.raw_response = response_text
                 result.search_performed = bool(news_context)
-                result.market_snapshot = self._build_market_snapshot(context)
+                result.market_snapshot = self._build_market_snapshot(context, report_language=report_language)
                 result.model_used = model_used
                 result.report_language = report_language
                 normalize_chip_structure_availability(result, context.get("chip"))
@@ -4515,10 +4517,19 @@ class GeminiAnalyzer:
         
         return prompt
     
-    def _format_volume(self, volume: Optional[float]) -> str:
+    def _format_volume(self, volume: Optional[float], report_language: str = "zh") -> str:
         """格式化成交量显示"""
         if volume is None:
             return 'N/A'
+        if report_language == "en":
+            if volume >= 1e9:
+                return f"{volume / 1e9:.2f}B shares"
+            elif volume >= 1e6:
+                return f"{volume / 1e6:.2f}M shares"
+            elif volume >= 1e3:
+                return f"{volume / 1e3:.2f}K shares"
+            else:
+                return f"{volume:.0f} shares"
         if volume >= 1e8:
             return f"{volume / 1e8:.2f} 亿股"
         elif volume >= 1e4:
@@ -4526,10 +4537,19 @@ class GeminiAnalyzer:
         else:
             return f"{volume:.0f} 股"
     
-    def _format_amount(self, amount: Optional[float]) -> str:
+    def _format_amount(self, amount: Optional[float], report_language: str = "zh") -> str:
         """格式化成交额显示"""
         if amount is None:
             return 'N/A'
+        if report_language == "en":
+            if amount >= 1e9:
+                return f"{amount / 1e9:.2f}B"
+            elif amount >= 1e6:
+                return f"{amount / 1e6:.2f}M"
+            elif amount >= 1e3:
+                return f"{amount / 1e3:.2f}K"
+            else:
+                return f"{amount:.0f}"
         if amount >= 1e8:
             return f"{amount / 1e8:.2f} 亿元"
         elif amount >= 1e4:
@@ -4555,7 +4575,7 @@ class GeminiAnalyzer:
         except (TypeError, ValueError):
             return 'N/A'
 
-    def _build_market_snapshot(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_market_snapshot(self, context: Dict[str, Any], report_language: str = "zh") -> Dict[str, Any]:
         """构建当日行情快照（展示用）"""
         today = context.get('today', {}) or {}
         realtime = context.get('realtime', {}) or {}
@@ -4589,8 +4609,8 @@ class GeminiAnalyzer:
             "pct_chg": self._format_percent(today.get('pct_chg')),
             "change_amount": self._format_price(change_amount),
             "amplitude": self._format_percent(amplitude),
-            "volume": self._format_volume(today.get('volume')),
-            "amount": self._format_amount(today.get('amount')),
+            "volume": self._format_volume(today.get('volume'), report_language),
+            "amount": self._format_amount(today.get('amount'), report_language),
         }
 
         if realtime:
