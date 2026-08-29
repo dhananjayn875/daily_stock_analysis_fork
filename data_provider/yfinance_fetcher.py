@@ -372,6 +372,8 @@ class YfinanceFetcher(BaseFetcher):
             return self._get_kr_main_indices(yf)
         if region == "tw":
             return self._get_tw_main_indices(yf)
+        if region == "in":
+            return self._get_in_main_indices(yf)
 
         # A 股指数：akshare 代码 -> (yfinance 代码, 显示名称)
         yf_mapping = {
@@ -529,6 +531,38 @@ class YfinanceFetcher(BaseFetcher):
                 return results
         except Exception as e:
             logger.error(f"[Yfinance] 获取台湾指数行情失败: {e}")
+        return None
+
+    def _get_in_main_indices(self, yf) -> Optional[List[Dict[str, Any]]]:
+        """获取印度主要指数行情（Nifty 50, Sensex, Nifty Bank, India VIX），复用 _fetch_yf_ticker_data。"""
+        in_indices = {
+            'NSEI': ('^NSEI', 'Nifty 50'),
+            'BSESN': ('^BSESN', 'Sensex'),
+            'NSEBANK': ('^NSEBANK', 'Nifty Bank'),
+            'INDIAVIX': ('^INDIAVIX', 'India VIX'),
+        }
+        results = []
+        try:
+            for code, (yf_symbol, name) in in_indices.items():
+                try:
+                    item = self._fetch_yf_ticker_data(yf, yf_symbol, name, code)
+                    if item:
+                        results.append(item)
+                        logger.debug(f"[Yfinance] 获取印度指数 {name} 成功")
+                except Exception as e:
+                    logger.warning(f"[Yfinance] 获取印度指数 {name} 失败: {e}")
+            if results:
+                logger.info(f"[Yfinance] 成功获取 {len(results)} 个印度指数行情")
+                return results
+        except Exception as e:
+            logger.error(f"[Yfinance] 获取印度指数行情失败: {e}")
+        return None
+
+    def get_stock_name(self, stock_code: str) -> Optional[str]:
+        """获取股票名称（通过实时行情复用）。"""
+        quote = self.get_realtime_quote(stock_code)
+        if quote and hasattr(quote, "name") and quote.name:
+            return quote.name
         return None
 
     def _is_us_stock(self, stock_code: str) -> bool:

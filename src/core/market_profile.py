@@ -92,6 +92,19 @@ KR_PROFILE = MarketProfile(
     has_sector_rankings=False,
 )
 
+IN_PROFILE = MarketProfile(
+    region="in",
+    mood_index_code="NSEI",
+    news_queries=[
+        "印度股市 Nifty Sensex",
+        "India stock market Nifty 50 Sensex",
+        "Nifty 50 Sensex news today",
+    ],
+    prompt_index_hint="分析 Nifty 50、Sensex 等印度主要指数走势特点",
+    has_market_stats=False,
+    has_sector_rankings=False,
+)
+
 
 def get_profile(region: str) -> MarketProfile:
     """根据 region 返回对应的 MarketProfile"""
@@ -103,4 +116,6 @@ def get_profile(region: str) -> MarketProfile:
         return JP_PROFILE
     if region == "kr":
         return KR_PROFILE
+    if region == "in":
+        return IN_PROFILE
     return CN_PROFILE

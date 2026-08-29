@@ -31,6 +31,7 @@ from src.agent.provider_trace import resolved_model_provider_identity
 from src.agent.skills.defaults import CORE_TRADING_SKILL_POLICY_ZH
 from src.config import (
     Config,
+    _get_litellm_provider,
     extra_litellm_params,
     get_api_keys_for_model,
     get_config,
@@ -2428,7 +2429,7 @@ class GeminiAnalyzer:
 
     @staticmethod
     def _legacy_router_provider_alias(model: str) -> str:
-        provider = model.split("/", 1)[0] if "/" in model else "openai"
+        provider = _get_litellm_provider(model)
         return f"__legacy_{provider}__"
 
     @staticmethod
@@ -2440,6 +2441,10 @@ class GeminiAnalyzer:
         if not model:
             return []
         target_model = model
+        if "/" not in target_model:
+            _prov = _get_litellm_provider(target_model)
+            if _prov in {"gemini", "anthropic", "deepseek"}:
+                target_model = f"{_prov}/{target_model}"
         target_legacy_alias = GeminiAnalyzer._legacy_router_provider_alias(model)
         legacy_entries: List[Dict[str, Any]] = []
         for entry in model_list or []:
@@ -2534,12 +2539,17 @@ class GeminiAnalyzer:
             config.llm_model_list,
         )
         if len(legacy_model_list) <= 1 and keys:
-            extra_params = extra_litellm_params(litellm_model, config)
+            normalized_litellm_model = litellm_model
+            if "/" not in normalized_litellm_model:
+                _prov = _get_litellm_provider(normalized_litellm_model)
+                if _prov in {"gemini", "anthropic", "deepseek"}:
+                    normalized_litellm_model = f"{_prov}/{normalized_litellm_model}"
+            extra_params = extra_litellm_params(normalized_litellm_model, config)
             configured_model_list = [
                 {
                     "model_name": litellm_model,
                     "litellm_params": {
-                        "model": litellm_model,
+                        "model": normalized_litellm_model,
                         "api_key": k,
                         **extra_params,
                     },
@@ -2804,6 +2814,10 @@ class GeminiAnalyzer:
         if keys:
             effective_kwargs["api_key"] = keys[0]
         effective_kwargs.update(extra_litellm_params(model, config))
+        if "/" not in effective_kwargs.get("model", ""):
+            _prov = _get_litellm_provider(effective_kwargs.get("model", ""))
+            if _prov in {"gemini", "anthropic", "deepseek"}:
+                effective_kwargs["model"] = f"{_prov}/{effective_kwargs['model']}"
         return litellm.completion(**effective_kwargs)
 
     def _normalize_usage(

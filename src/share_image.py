@@ -1966,7 +1966,7 @@ def _multi_market_body(
     markets = structured_payload.get("markets") if isinstance(structured_payload, Mapping) else None
     market_payloads = markets if isinstance(markets, Mapping) else {}
     unused_regions = [
-        region for region in ("cn", "hk", "us", "jp", "kr")
+        region for region in ("cn", "hk", "us", "jp", "kr", "in")
         if isinstance(market_payloads.get(region), Mapping)
     ]
     for segment in segments:

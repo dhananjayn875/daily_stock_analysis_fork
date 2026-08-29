@@ -156,3 +156,40 @@ class TestDataFetcherManagerIndianRouting:
         assert akshare.called is False
         assert baostock.called is False
         assert tencent.called is False
+
+
+class TestIndianMarketReviewSupport:
+    def test_market_review_region_normalization(self):
+        from src.utils.market_review_region import (
+            normalize_market_review_region_lenient,
+            normalize_market_review_region_strict,
+            MARKET_REVIEW_REGION_ORDER,
+        )
+        assert "in" in MARKET_REVIEW_REGION_ORDER
+        assert normalize_market_review_region_lenient("in") == "in"
+        assert normalize_market_review_region_lenient("us,in") == "us,in"
+        assert normalize_market_review_region_strict("in") == "in"
+        assert normalize_market_review_region_strict("cn,in") == "cn,in"
+
+    def test_yfinance_fetcher_in_main_indices_mapping(self):
+        from unittest.mock import MagicMock
+        fetcher = YfinanceFetcher()
+        mock_yf = MagicMock()
+        mock_ticker = MagicMock()
+        mock_ticker.history.return_value = None
+        mock_yf.Ticker.return_value = mock_ticker
+
+        # Call _get_in_main_indices with mocked yf
+        indices = fetcher._get_in_main_indices(mock_yf)
+        assert mock_yf.Ticker.call_count >= 4
+        requested_symbols = [call.args[0] for call in mock_yf.Ticker.call_args_list]
+        assert "^NSEI" in requested_symbols
+        assert "^BSESN" in requested_symbols
+
+    def test_gemini_litellm_model_normalization(self):
+        from src.config import _get_litellm_provider
+        assert _get_litellm_provider("gemini-2.0-flash") == "gemini"
+        assert _get_litellm_provider("gemini/gemini-2.0-flash") == "gemini"
+        assert _get_litellm_provider("claude-3-5-sonnet") == "anthropic"
+        assert _get_litellm_provider("deepseek-chat") == "deepseek"
+

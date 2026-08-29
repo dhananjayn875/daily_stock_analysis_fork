@@ -745,6 +745,12 @@ def _get_litellm_provider(model: str) -> str:
         return ""
     if "/" in model:
         return model.split("/", 1)[0]
+    if model.startswith("gemini-"):
+        return "gemini"
+    if model.startswith("claude-"):
+        return "anthropic"
+    if model.startswith("deepseek-"):
+        return "deepseek"
     return "openai"
 
 
@@ -1508,6 +1514,10 @@ class Config:
         # before YAML/channels are parsed, but legacy inference is delayed until
         # the higher-priority sources and Hermes blocking issues are known.
         litellm_model_explicit = os.getenv('LITELLM_MODEL', '').strip()
+        if litellm_model_explicit and '/' not in litellm_model_explicit:
+            _prov = _get_litellm_provider(litellm_model_explicit)
+            if _prov in {'gemini', 'anthropic', 'deepseek'}:
+                litellm_model_explicit = f'{_prov}/{litellm_model_explicit}'
         litellm_model = litellm_model_explicit
         inferred_legacy_deepseek_model = False
         _openai_model_env = os.getenv('OPENAI_MODEL', '').strip()
@@ -1520,7 +1530,14 @@ class Config:
         _fallback_str = os.getenv('LITELLM_FALLBACK_MODELS', '')
         litellm_fallback_models_explicit = bool(_fallback_str.strip())
         if _fallback_str.strip():
-            litellm_fallback_models = [m.strip() for m in _fallback_str.split(',') if m.strip()]
+            raw_fallbacks = [m.strip() for m in _fallback_str.split(',') if m.strip()]
+            litellm_fallback_models = []
+            for fb in raw_fallbacks:
+                if '/' not in fb:
+                    _prov = _get_litellm_provider(fb)
+                    if _prov in {'gemini', 'anthropic', 'deepseek'}:
+                        fb = f'{_prov}/{fb}'
+                litellm_fallback_models.append(fb)
         else:
             litellm_fallback_models = []
 

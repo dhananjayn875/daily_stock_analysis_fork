@@ -151,7 +151,7 @@ class MarketAnalyzer:
         self.search_service = search_service
         self.analyzer = analyzer
         self.data_manager = DataFetcherManager()
-        self.region = region if region in ("cn", "us", "hk", "jp", "kr") else "cn"
+        self.region = region if region in ("cn", "us", "hk", "jp", "kr", "in") else "cn"
         self.profile: MarketProfile = get_profile(self.region)
         self.strategy = get_market_strategy_blueprint(self.region)
 
@@ -307,6 +307,8 @@ class MarketAnalyzer:
             return "Japan market" if review_language == "en" else "日本市场"
         if self.region == "kr":
             return "Korea market" if review_language == "en" else "韩国市场"
+        if self.region == "in":
+            return "India market" if review_language == "en" else "印度市场"
         if review_language == "en":
             return "A-share market"
         return "A股市场"
@@ -321,13 +323,15 @@ class MarketAnalyzer:
             return "JPY bn" if self._get_review_language() == "en" else "十亿日元"
         if self.region == "kr":
             return "KRW bn" if self._get_review_language() == "en" else "十亿韩元"
+        if self.region == "in":
+            return "INR cr" if self._get_review_language() == "en" else "亿卢比"
         return "CNY 100m" if self._get_review_language() == "en" else "亿"
 
     def _format_turnover_value(self, amount_raw: float) -> str:
         """Format raw turnover according to market-specific units."""
         if amount_raw == 0.0:
             return "N/A"
-        if self.region in ("us", "hk", "jp", "kr"):
+        if self.region in ("us", "hk", "jp", "kr", "in"):
             return f"{amount_raw / 1e9:.2f}"
         if amount_raw > 1e6:
             return f"{amount_raw / 1e8:.0f}"
@@ -348,6 +352,7 @@ class MarketAnalyzer:
                 "hk": "HK Market Recap",
                 "jp": "Japan Market Recap",
                 "kr": "Korea Market Recap",
+                "in": "India Market Recap",
             }
             market_name = market_names.get(self.region, "A-share Market Recap")
             return f"## {date} {market_name}"
@@ -363,6 +368,8 @@ class MarketAnalyzer:
                 return "Analyze the key moves in the Nikkei 225, TOPIX, and other major Japanese indices."
             if self.region == "kr":
                 return "Analyze the key moves in the KOSPI, KOSDAQ, and other major Korean indices."
+            if self.region == "in":
+                return "Analyze the key moves in the Nifty 50, Sensex, Nifty Bank, and other major Indian indices."
             return "Analyze the price action in the SSE, SZSE, ChiNext, and other major indices."
         return self.profile.prompt_index_hint
 
@@ -448,6 +455,31 @@ Focus on KOSPI, KOSDAQ, semiconductor heavyweights, and global technology risk a
 - Risk-on: KOSPI and KOSDAQ rise together with confirmed technology leadership and improving external risk appetite.
 - Neutral: index or heavyweight divergence; keep sizing controlled and wait for confirmation.
 - Risk-off: technology heavyweights weaken or external risk rises; prioritize drawdown control."""
+        if self.region == "in" and self._get_review_language() == "en":
+            return """## Strategy Blueprint: India Market Regime Strategy
+Focus on Nifty 50, Sensex, heavyweight leaders, and foreign flows to define the next-session trading plan.
+
+### Strategy Principles
+- Read Nifty 50 and Sensex alignment first, then assess banking, IT, and core heavyweight signals.
+- Track global risk appetite and capital flow dynamics.
+- Base judgments only on available index data, news, and price action without inventing breadth or sector statistics.
+
+### Analysis Dimensions
+- Trend Regime: Classify India equities as advancing, range-bound, or defensive.
+  - Are Nifty 50 and Sensex directionally aligned
+  - Are key index levels reclaimed or lost
+  - Are large-cap weights and growth themes moving together
+- Macro & Flows: Map foreign institutional activity, currency, and macro narrative into equity risk appetite.
+  - FII/DII sentiment and macro indicators
+  - Global tech and commodities read-through
+- Sector Themes: Identify persistent leaders and vulnerable laggards.
+  - Rotation across Banking, IT, Auto, and Energy
+  - Whether news catalysts confirm price action
+
+### Action Framework
+- Risk-on: major indices rise together with confirmed leadership and favorable risk appetite.
+- Neutral: index or sector divergence; keep sizing controlled and wait for confirmation.
+- Risk-off: major indices weaken or external risk rises; prioritize capital preservation."""
         if self.region == "us" and self._get_review_language() == "zh":
             return """## 美股市场三段式复盘策略
 聚焦指数趋势、宏观叙事与板块轮动，给出次日风控与仓位框架。
@@ -514,6 +546,12 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 - **Trend Regime**: Classify Korea equities as advancing, range-bound, or defensive based on KOSPI/KOSDAQ alignment.
 - **Technology Cycle**: Track semiconductor, AI hardware, and global technology read-through for market risk appetite.
 - **Theme Signals**: Focus on battery, auto, internet-platform, and KOSDAQ growth-stock rotation.
+"""
+        if self.region == "in" and review_language == "en":
+            return """### 6. Strategy Framework
+- **Trend Regime**: Classify India equities as advancing, range-bound, or defensive based on Nifty 50/Sensex alignment.
+- **Macro & Flows**: Track FII/DII flows, currency, and global risk appetite for equity sentiment.
+- **Theme Signals**: Focus on Banking, IT, Auto, Energy, and blue-chip heavyweight rotation.
 """
         if self.region == "us" and review_language == "zh":
             return """### 六、策略框架
@@ -743,6 +781,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
             "hk": "港股市场" if review_language == "zh" else "HK market",
             "jp": "日本股市" if review_language == "zh" else "Japan stock market",
             "kr": "韩国股市" if review_language == "zh" else "Korea stock market",
+            "in": "印度股市" if review_language == "zh" else "India stock market",
         }
         
         try:
@@ -1952,6 +1991,7 @@ Output the report content directly, no extra commentary.
                 "hk": "HK Market Recap",
                 "jp": "Japan Market Recap",
                 "kr": "Korea Market Recap",
+                "in": "India Market Recap",
             }
             market_name = market_names.get(self.region, "A-share Market Recap")
             report = f"""## {overview.date} {market_name}
@@ -1973,7 +2013,7 @@ Market conditions can change quickly. The data above is for reference only and d
 """
             return report
 
-        market_labels = {"cn": "A股", "us": "美股", "hk": "港股", "jp": "日股", "kr": "韩股"}
+        market_labels = {"cn": "A股", "us": "美股", "hk": "港股", "jp": "日股", "kr": "韩股", "in": "印股"}
         market_label = market_labels.get(self.region, "A股")
         dashboard_block = (
             self._build_stats_block(overview)

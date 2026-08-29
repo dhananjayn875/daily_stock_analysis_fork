@@ -229,6 +229,40 @@ KR_BLUEPRINT = MarketStrategyBlueprint(
     ],
 )
 
+IN_BLUEPRINT = MarketStrategyBlueprint(
+    region="in",
+    title="印度市场三段式复盘策略",
+    positioning="聚焦 Nifty 50、Sensex、权重蓝筹与外资流动，形成次日交易计划。",
+    principles=[
+        "先看 Nifty 50 与 Sensex 是否同向，再看银行、IT 等核心权重板块动向。",
+        "结合全球风险偏好、汇率与资本流动评估印度市场热度。",
+        "只基于可得指数、新闻和价格行为判断，不臆造市场广度或板块统计。",
+    ],
+    dimensions=[
+        StrategyDimension(
+            name="趋势结构",
+            objective="判断印度市场处于上攻、震荡还是防守阶段。",
+            checkpoints=["Nifty 50 / Sensex 是否同向", "核心蓝筹是否支撑指数", "关键支撑阻力是否被突破"],
+        ),
+        StrategyDimension(
+            name="宏观与流动性",
+            objective="识别外资流动、汇率及全球宏观对印度市场的映射。",
+            checkpoints=["外资机构买卖动向", "宏观政策与利率叙事", "外部市场联动"],
+        ),
+        StrategyDimension(
+            name="主题线索",
+            objective="提炼可延续主线与需要规避的拥挤方向。",
+            checkpoints=["银行/IT/消费板块轮动", "大型权重与中小型股分化", "新闻催化是否支撑价格行为"],
+        ),
+    ],
+    action_framework=[
+        "进攻：主要指数共振上行 + 权重板块确认 + 外部风险偏好改善。",
+        "均衡：指数或权重股分化，控制仓位并等待确认。",
+        "防守：主要指数走弱或外部风险升温，优先控制回撤。",
+    ],
+)
+
+
 def get_market_strategy_blueprint(region: str) -> MarketStrategyBlueprint:
     """Return strategy blueprint by market region."""
     if region == "us":
@@ -239,4 +273,6 @@ def get_market_strategy_blueprint(region: str) -> MarketStrategyBlueprint:
         return JP_BLUEPRINT
     if region == "kr":
         return KR_BLUEPRINT
+    if region == "in":
+        return IN_BLUEPRINT
     return CN_BLUEPRINT
